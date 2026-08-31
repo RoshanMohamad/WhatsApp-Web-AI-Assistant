@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-08-31
+
 ### Fixed
 
 - Exported conversations are now in true chronological order. Timestamp parsing
@@ -62,6 +64,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   instructions, insert-into-chat and copy-to-clipboard.
 - Larger context window, using `gemini-2.5-flash`.
 
-[Unreleased]: https://github.com/silham/WhatsApp-Web-AI-Assistant/commits/main
+[Unreleased]: https://github.com/silham/WhatsApp-Web-AI-Assistant/compare/v1.2.0...HEAD
+[1.2.0]: https://github.com/silham/WhatsApp-Web-AI-Assistant/releases/tag/v1.2.0
 [1.1.0]: https://github.com/silham/WhatsApp-Web-AI-Assistant/commit/79de63a
 [1.0.0]: https://github.com/silham/WhatsApp-Web-AI-Assistant/commit/0126087
