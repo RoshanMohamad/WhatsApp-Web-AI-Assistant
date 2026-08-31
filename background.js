@@ -42,7 +42,7 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
         // Inject content script only if not already loaded
         await chrome.scripting.executeScript({
           target: { tabId: tabId },
-          files: ['content.js']
+          files: ['lib/timestamps.js', 'content.js']
         });
         
         // Inject CSS

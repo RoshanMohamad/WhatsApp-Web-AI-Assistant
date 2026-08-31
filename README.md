@@ -1,6 +1,16 @@
 # WhatsApp Web AI Assistant
 
+[![CI](https://github.com/silham/WhatsApp-Web-AI-Assistant/actions/workflows/ci.yml/badge.svg)](https://github.com/silham/WhatsApp-Web-AI-Assistant/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Manifest V3](https://img.shields.io/badge/Chrome-Manifest%20V3-4285F4.svg)](manifest.json)
+
 A Chrome extension that enables you to export WhatsApp Web conversations and generate AI responses using Google's Gemini AI.
+
+It runs entirely in your own browser: there is no server, no telemetry, and
+conversation text leaves your machine only when you explicitly ask for an AI
+response. You bring your own Gemini API key.
+
+> **Not affiliated with WhatsApp or Meta.** See [Disclaimer](#disclaimer).
 
 ## Features
 
@@ -91,10 +101,10 @@ document.querySelectorAll('[data-testid="msg-container"]')
 ```
 
 ### AI Integration
-- **Model**: Gemini Flash ( Recommended for fast responses )
+- **Model**: `gemini-2.0-flash` (chosen for fast responses)
 - **Temperature**: 0.7 (balanced creativity)
 - **Max Tokens**: 1024
-- **Context**: 100 most recent messages
+- **Context**: up to the 100 most recent messages
 
 ### Supported Features
 - ✅ Text messages
@@ -115,29 +125,53 @@ document.querySelectorAll('[data-testid="msg-container"]')
 ## File Structure
 
 ```
-whatsapp-web-ai/
-├── manifest.json          # Extension configuration
-├── content.js             # Main functionality and WhatsApp integration
-├── styles.css             # UI styling
-├── popup.html             # Extension popup interface
-├── popup.js               # Popup functionality
-├── background.js          # Service worker
-├── help.html              # Documentation page
-└── README.md              # This file
+WhatsApp-Web-AI-Assistant/
+├── manifest.json          # Extension configuration (Manifest V3)
+├── content.js             # WhatsApp integration: DOM scraping, cache, UI, Gemini calls
+├── background.js          # Service worker; injects the content script
+├── popup.html/.js         # Toolbar popup
+├── help.html              # In-extension documentation page
+├── styles.css             # Styling for the injected UI
+├── lib/
+│   └── timestamps.js      # Dependency-free timestamp parsing and message ordering
+├── test/                  # Unit tests for lib/, run with `node --test`
+├── scripts/
+│   ├── check-manifest.js  # Validates manifest.json before packaging
+│   └── package.js         # Builds the Chrome Web Store zip into dist/
+└── .github/workflows/     # CI and release automation
 ```
+
+Anything that can be tested without a browser lives in `lib/`. Files there
+attach their API to `globalThis` for the extension and export it via CommonJS
+for the tests, so a single file serves both.
 
 ## Development
 
 ### Prerequisites
 - Chrome browser
-- Basic knowledge of JavaScript/HTML/CSS
+- [Node.js](https://nodejs.org) 20.11 or newer (for linting, tests and packaging)
 - Gemini API key
 
 ### Local Development
-1. Clone the repository
-2. Make changes to the source files
-3. Reload the extension in `chrome://extensions/`
-4. Test on WhatsApp Web
+```bash
+git clone https://github.com/silham/WhatsApp-Web-AI-Assistant.git
+cd WhatsApp-Web-AI-Assistant
+npm install          # ESLint only; the extension itself ships no dependencies
+npm run verify       # lint + manifest check + tests
+```
+
+Then load the folder in Chrome via **Load unpacked**, as in
+[Installation](#installation). After editing a file, press reload on the
+extension card in `chrome://extensions/` and refresh the WhatsApp Web tab —
+content scripts are not hot-reloaded.
+
+| Command | What it does |
+| --- | --- |
+| `npm run lint` | ESLint across the extension, scripts and tests |
+| `npm test` | Unit tests for `lib/`, using Node's built-in runner |
+| `npm run check:manifest` | Validates `manifest.json` and its version against `package.json` |
+| `npm run verify` | All three, the same set CI runs |
+| `npm run package` | Verifies, then builds `dist/*.zip` for the Chrome Web Store |
 
 ### Key Components
 
@@ -178,15 +212,27 @@ Google's Gemini API has rate limits:
 
 ## Contributing
 
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Test thoroughly on WhatsApp Web
-5. Submit a pull request
+Contributions are welcome. Read [CONTRIBUTING.md](CONTRIBUTING.md) for the
+setup, the checks to run before opening a pull request, and where code should
+live. Participation is governed by our
+[Code of Conduct](CODE_OF_CONDUCT.md).
+
+**Never include real conversation content** in an issue, a pull request or a
+test fixture — exports contain private messages, phone numbers and sometimes
+one-time passcodes.
+
+Changes are recorded in [CHANGELOG.md](CHANGELOG.md).
+
+## Security
+
+To report a vulnerability, use
+[private vulnerability reporting](https://github.com/silham/WhatsApp-Web-AI-Assistant/security/advisories/new)
+rather than a public issue. [SECURITY.md](SECURITY.md) sets out what is in
+scope and exactly what the extension does with your data.
 
 ## License
 
-This project is open source and available under the MIT License.
+[MIT](LICENSE) © Shakil Ilham
 
 ## Disclaimer
 
@@ -194,10 +240,10 @@ This extension is not affiliated with WhatsApp or Meta. It's an independent tool
 
 ## Support
 
-For issues, suggestions, or questions:
-- Open an issue in the GitHub repository
-- Check the help.html file for detailed documentation
-- Review the troubleshooting section above
+- [Open an issue](https://github.com/silham/WhatsApp-Web-AI-Assistant/issues/new/choose) for a bug or a feature request
+- Review the [troubleshooting](#troubleshooting) section above
+- Open `help.html` from the extension popup for in-app documentation
+- For anything security-related, see [SECURITY.md](SECURITY.md)
 
 ---
 

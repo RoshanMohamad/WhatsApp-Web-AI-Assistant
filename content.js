@@ -266,124 +266,12 @@ class WhatsAppAI {
   }
 
   sortMessagesChronologically(messages) {
-    const dateOrder = this.detectDateOrder(messages);
-
-    // Decorate with the parsed time and the original position so equal
-    // timestamps keep a deterministic order.
-    const decorated = messages.map((message, index) => ({
-      message,
-      index,
-      time: this.parseTimestamp(message.timestamp, dateOrder)
-    }));
-
-    decorated.sort((a, b) => {
-      // Messages we could not parse keep their original order, at the end
-      if (a.time === null || b.time === null) {
-        if (a.time === b.time) return a.index - b.index;
-        return a.time === null ? 1 : -1;
-      }
-
-      if (a.time !== b.time) return a.time - b.time;
-
-      // WhatsApp timestamps only go down to the minute, so messages sent in
-      // the same minute are ordered by where they sit in the chat
-      const domA = a.message.domOrder;
-      const domB = b.message.domOrder;
-      if (typeof domA === 'number' && typeof domB === 'number' && domA !== domB) {
-        return domA - domB;
-      }
-
-      return a.index - b.index;
-    });
-
-    return decorated.map(entry => entry.message);
+    // Implemented in lib/timestamps.js, which is loaded ahead of this script
+    return WhatsAppTimestamps.sortMessagesChronologically(messages);
   }
 
-  detectDateOrder(messages) {
-    // WhatsApp prints dates in the browser locale, so "8/6/2026" can be either
-    // 8 June or August 6. Any date with a component above 12 settles it for the
-    // whole conversation.
-    for (const message of messages) {
-      const match = String(message.timestamp || '').match(/(\d{1,2})[\/.-](\d{1,2})[\/.-]\d{2,4}/);
-      if (!match) continue;
-
-      if (parseInt(match[1], 10) > 12) return 'dayFirst';
-      if (parseInt(match[2], 10) > 12) return 'monthFirst';
-    }
-
-    return this.getLocaleDateOrder();
-  }
-
-  getLocaleDateOrder() {
-    try {
-      const parts = new Intl.DateTimeFormat(undefined, { dateStyle: 'short' })
-        .formatToParts(new Date(2000, 0, 2));
-      const first = parts.find(part => part.type === 'day' || part.type === 'month');
-      return first && first.type === 'month' ? 'monthFirst' : 'dayFirst';
-    } catch (error) {
-      return 'dayFirst';
-    }
-  }
-
-  parseTimestamp(timestampStr, dateOrder = 'dayFirst') {
-    try {
-      // Handles the formats WhatsApp puts in data-pre-plain-text, e.g.
-      // "7:04 AM, 7/31/2026", "09:21, 19/08/2025", "21:05, 2025-08-19"
-      if (!timestampStr) return null;
-      const str = String(timestampStr);
-
-      const timeMatch = str.match(/(\d{1,2}):(\d{2})(?::(\d{2}))?\s*([ap]\.?m\.?)?/i);
-      if (!timeMatch) return null;
-
-      let hours = parseInt(timeMatch[1], 10);
-      const minutes = parseInt(timeMatch[2], 10);
-      const seconds = timeMatch[3] ? parseInt(timeMatch[3], 10) : 0;
-      const meridiem = timeMatch[4] ? timeMatch[4].toLowerCase().replace(/\./g, '') : null;
-
-      if (meridiem === 'pm' && hours < 12) hours += 12;
-      if (meridiem === 'am' && hours === 12) hours = 0;
-
-      const dateMatch = str.match(/(\d{1,4})[\/.-](\d{1,2})[\/.-](\d{2,4})/);
-      if (!dateMatch) {
-        // Time only - assume today so it still sorts after older messages
-        const today = new Date();
-        return new Date(today.getFullYear(), today.getMonth(), today.getDate(), hours, minutes, seconds).getTime();
-      }
-
-      const first = parseInt(dateMatch[1], 10);
-      const second = parseInt(dateMatch[2], 10);
-      const third = parseInt(dateMatch[3], 10);
-      let day, month, year;
-
-      if (dateMatch[1].length === 4) {
-        // ISO style: 2025-08-19
-        year = first;
-        month = second;
-        day = third;
-      } else {
-        year = third;
-        if (first > 12) {
-          day = first;
-          month = second;
-        } else if (second > 12) {
-          month = first;
-          day = second;
-        } else if (dateOrder === 'monthFirst') {
-          month = first;
-          day = second;
-        } else {
-          day = first;
-          month = second;
-        }
-      }
-
-      if (year < 100) year += 2000;
-
-      const time = new Date(year, month - 1, day, hours, minutes, seconds).getTime();
-      return Number.isNaN(time) ? null : time;
-    } catch (error) {
-      return null;
-    }
+  parseTimestamp(timestampStr, dateOrder) {
+    return WhatsAppTimestamps.parseTimestamp(timestampStr, dateOrder);
   }
 
   scanVisibleMessages() {

@@ -1,0 +1,34 @@
+name: WhatsApp Web changed and broke something
+description: Message detection stopped working after a WhatsApp update
+labels: ['bug', 'whatsapp-dom']
+body:
+  - type: markdown
+    attributes:
+      value: |
+        WhatsApp Web changes its markup without notice, which breaks the
+        selectors this extension relies on. These reports are the fastest way
+        to get a fix out, so thank you.
+
+  - type: textarea
+    id: symptom
+    attributes:
+      label: What stopped working?
+      placeholder: 'Exports are empty / only some messages are captured / senders are wrong'
+    validations:
+      required: true
+
+  - type: textarea
+    id: markup
+    attributes:
+      label: Current markup, if you can get it
+      description: >
+        In DevTools, right-click a message bubble, choose Inspect, then copy the
+        outer HTML of the element carrying `data-pre-plain-text`.
+        **Replace the message text and any phone number with placeholders.**
+      render: html
+
+  - type: input
+    id: when
+    attributes:
+      label: When did you first notice it?
+      placeholder: 'Around 20 August 2026'

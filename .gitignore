@@ -1,0 +1,29 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+*.zip
+
+# Exported conversations - these contain private chat contents and must never
+# be committed. Keep them out of the repository even while debugging exports.
+whatsapp-conversation-*.txt
+
+# Local environment and secrets
+.env
+.env.*
+*.pem
+*.key
+
+# Editor and OS noise
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/extensions.json
+*.swp
+
+# Logs
+npm-debug.log*
+yarn-error.log*
+*.log

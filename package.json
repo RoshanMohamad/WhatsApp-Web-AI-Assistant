@@ -1,33 +1,42 @@
 {
-  "name": "whatsapp-web-ai",
-  "version": "1.0.0",
-  "description": "Chrome extension for exporting WhatsApp conversations and generating AI responses",
-  "main": "content.js",
-  "scripts": {
-    "build": "echo 'Extension built successfully'",
-    "test": "echo 'No tests specified'",
-    "package": "zip -r whatsapp-web-ai.zip . -x '*.git*' 'node_modules/*' '*.zip'",
-    "dev": "echo 'Load extension in Chrome Developer Mode from this directory'"
-  },
+  "name": "whatsapp-web-ai-assistant",
+  "version": "1.1.0",
+  "private": true,
+  "description": "Chrome extension that exports WhatsApp Web conversations and drafts replies with Google Gemini",
   "keywords": [
     "whatsapp",
+    "whatsapp-web",
     "ai",
     "gemini",
     "chrome-extension",
+    "manifest-v3",
     "conversation",
-    "export",
-    "automation"
+    "export"
   ],
-  "author": "Your Name",
-  "license": "MIT",
+  "homepage": "https://github.com/silham/WhatsApp-Web-AI-Assistant#readme",
+  "bugs": {
+    "url": "https://github.com/silham/WhatsApp-Web-AI-Assistant/issues"
+  },
   "repository": {
     "type": "git",
-    "url": "https://github.com/yourusername/whatsapp-web-ai.git"
+    "url": "git+https://github.com/silham/WhatsApp-Web-AI-Assistant.git"
   },
-  "bugs": {
-    "url": "https://github.com/yourusername/whatsapp-web-ai/issues"
+  "license": "MIT",
+  "author": "Shakil Ilham (https://github.com/silham)",
+  "type": "commonjs",
+  "engines": {
+    "node": ">=20.11.0"
   },
-  "homepage": "https://github.com/yourusername/whatsapp-web-ai#readme",
-  "devDependencies": {},
-  "dependencies": {}
+  "scripts": {
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "test": "node --test",
+    "check:manifest": "node scripts/check-manifest.js",
+    "verify": "npm run lint && npm run check:manifest && npm test",
+    "package": "npm run verify && node scripts/package.js"
+  },
+  "devDependencies": {
+    "eslint": "^10.9.1",
+    "globals": "^16.5.0"
+  }
 }
