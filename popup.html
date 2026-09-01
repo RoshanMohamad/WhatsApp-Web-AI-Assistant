@@ -118,6 +118,36 @@
       background: #fff3cd;
       color: #856404;
     }
+
+    .provider-line {
+      margin: 0 0 12px;
+      font-size: 13px;
+      color: #555;
+      text-align: center;
+    }
+
+    .provider-line strong {
+      color: #128c7e;
+    }
+
+    .permission-notice {
+      display: none;
+      background: #fff3cd;
+      color: #856404;
+      border-radius: 8px;
+      padding: 12px;
+      font-size: 12px;
+      margin-bottom: 12px;
+    }
+
+    .permission-notice button {
+      width: 100%;
+      margin-top: 8px;
+      background: #856404;
+      color: white;
+      padding: 8px;
+      font-size: 13px;
+    }
   </style>
 </head>
 <body>
@@ -129,11 +159,18 @@
   
   <ul class="feature-list">
     <li>Export full conversations</li>
-    <li>Generate AI responses with Gemini</li>
+    <li>Generate AI responses with any provider</li>
     <li>Auto-insert responses</li>
     <li>Copy to clipboard</li>
   </ul>
   
+  <div id="providerLine" class="provider-line"></div>
+
+  <div id="permissionNotice" class="permission-notice">
+    <span id="permissionText"></span>
+    <button id="grantPermission" type="button">Grant access</button>
+  </div>
+
   <div class="action-buttons">
     <button id="openWhatsApp" class="primary-btn">Open WhatsApp Web</button>
     <button id="openSettings" class="secondary-btn">Configure Settings</button>
@@ -142,6 +179,8 @@
   
   <div id="status" class="status" style="display: none;"></div>
 
+  <script src="lib/providers.js"></script>
+  <script src="lib/settings.js"></script>
   <script src="popup.js"></script>
 </body>
 </html>

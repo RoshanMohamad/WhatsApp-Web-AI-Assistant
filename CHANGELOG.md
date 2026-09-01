@@ -7,6 +7,47 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-09-01
+
+### Added
+
+- The AI provider is now a setting. Alongside Google Gemini the extension
+  supports Anthropic Claude, OpenAI, OpenRouter, Groq, DeepSeek, Mistral AI and
+  xAI Grok, a locally running Ollama, and a "Custom" option for any endpoint
+  that serves `/chat/completions` - LM Studio, vLLM, Together, Fireworks, an
+  Azure OpenAI gateway or your own proxy.
+- The model is configurable per provider, with the provider's default used when
+  left blank. "Load models from provider" asks the provider which models the
+  key can actually reach, so a model name no longer has to be guessed.
+- API keys, models and base URLs are remembered per provider, so switching
+  between them does not mean pasting a key again.
+- The popup shows which provider and model are configured, and grants Chrome
+  access to a custom or local endpoint's host - a permission Chrome will only
+  ask for from an extension page.
+- `lib/providers.js` holds one adapter per provider (request, response, errors)
+  and `lib/settings.js` owns the storage layout; both are unit tested, along
+  with the background worker's request path.
+
+### Changed
+
+- Provider calls are made from the background service worker rather than the
+  content script. A content script's `fetch` is an ordinary cross-origin
+  request from `web.whatsapp.com`, so it only reached providers that send
+  permissive CORS headers; from the worker it is covered by the manifest's host
+  permissions and works for every provider.
+- System instructions are sent as the provider's own system field rather than
+  being pasted at the top of the user prompt, which is what every provider
+  expects and what their prompt caching keys on.
+- Error messages name the provider and quote its own explanation, instead of
+  mapping a few HTTP codes to generic advice.
+- The API key check is per provider rather than a hard-coded `AIza` prefix, and
+  an unrecognised key shape is allowed through rather than rejected.
+
+### Migration
+
+- An existing Gemini key is carried over on first run and the old
+  `geminiApiKey` entry is removed. Nothing needs to be re-entered.
+
 ## [1.2.0] - 2026-08-31
 
 ### Fixed
@@ -64,7 +105,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   instructions, insert-into-chat and copy-to-clipboard.
 - Larger context window, using `gemini-2.5-flash`.
 
-[Unreleased]: https://github.com/silham/WhatsApp-Web-AI-Assistant/compare/v1.2.0...HEAD
+[Unreleased]: https://github.com/silham/WhatsApp-Web-AI-Assistant/compare/v1.3.0...HEAD
+[1.3.0]: https://github.com/silham/WhatsApp-Web-AI-Assistant/releases/tag/v1.3.0
 [1.2.0]: https://github.com/silham/WhatsApp-Web-AI-Assistant/releases/tag/v1.2.0
 [1.1.0]: https://github.com/silham/WhatsApp-Web-AI-Assistant/commit/79de63a
 [1.0.0]: https://github.com/silham/WhatsApp-Web-AI-Assistant/commit/0126087

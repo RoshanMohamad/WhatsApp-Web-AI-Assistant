@@ -141,7 +141,7 @@
   
   <div class="step">
     <span class="step-number">2</span>
-    <strong>Get Gemini API Key:</strong> Visit <a href="https://aistudio.google.com/app/apikey" target="_blank">Google AI Studio</a> and create a free API key for Gemini.
+    <strong>Get an API Key:</strong> Pick a provider and create a key — see <a href="#providers">Supported providers</a> below. Most have a free tier, and a local Ollama needs no key at all.
   </div>
   
   <div class="step">
@@ -151,7 +151,7 @@
   
   <div class="step">
     <span class="step-number">4</span>
-    <strong>Configure Settings:</strong> Click the floating AI button and go to Settings to enter your Gemini API key.
+    <strong>Configure Settings:</strong> Click the floating AI button and go to Settings to pick your provider and paste its API key.
   </div>
 
   <h2>✨ Features</h2>
@@ -166,7 +166,7 @@
     <div class="feature-card">
       <div class="feature-icon">🤖</div>
       <h3>AI Response Generation</h3>
-      <p>Generate contextually appropriate responses using Google's Gemini AI based on conversation history.</p>
+      <p>Generate contextually appropriate responses from the conversation history, using the AI provider of your choice.</p>
     </div>
     
     <div class="feature-card">
@@ -194,7 +194,7 @@
 
   <h3>Generating AI Responses</h3>
   <ol>
-    <li>Make sure you've configured your Gemini API key</li>
+    <li>Make sure you've configured a provider and its API key</li>
     <li>Open any WhatsApp conversation</li>
     <li>Click the floating AI button</li>
     <li>Select "Generate AI Response"</li>
@@ -210,18 +210,36 @@ Outgoing messages: .message-out<br>
 Message containers: [data-testid="msg-container"]
   </div>
 
+  <h2 id="providers">🔌 Supported providers</h2>
+  <p>Pick one in Settings. Keys are remembered per provider, so you can switch between them without pasting a key again.</p>
+  <ul>
+    <li><strong>Google Gemini</strong> — <a href="https://aistudio.google.com/app/apikey" target="_blank">Google AI Studio</a></li>
+    <li><strong>Anthropic Claude</strong> — <a href="https://console.anthropic.com/settings/keys" target="_blank">Anthropic Console</a></li>
+    <li><strong>OpenAI</strong> — <a href="https://platform.openai.com/api-keys" target="_blank">OpenAI dashboard</a></li>
+    <li><strong>OpenRouter</strong> — <a href="https://openrouter.ai/keys" target="_blank">OpenRouter keys</a></li>
+    <li><strong>Groq</strong> — <a href="https://console.groq.com/keys" target="_blank">Groq console</a></li>
+    <li><strong>DeepSeek</strong> — <a href="https://platform.deepseek.com/api_keys" target="_blank">DeepSeek platform</a></li>
+    <li><strong>Mistral AI</strong> — <a href="https://console.mistral.ai/api-keys" target="_blank">Mistral console</a></li>
+    <li><strong>xAI Grok</strong> — <a href="https://console.x.ai/" target="_blank">xAI console</a></li>
+    <li><strong>Ollama</strong> — a model running on your own machine, no key required</li>
+    <li><strong>Custom</strong> — any endpoint serving <code>/chat/completions</code>: LM Studio, vLLM, Together, Fireworks, an Azure OpenAI gateway, or your own proxy</li>
+  </ul>
+
   <h2>⚙️ Configuration</h2>
 
   <h3>API Key Setup</h3>
   <ol>
-    <li>Go to <a href="https://aistudio.google.com/app/apikey" target="_blank">Google AI Studio</a></li>
-    <li>Sign in with your Google account</li>
-    <li>Click "Create API Key"</li>
-    <li>Copy the generated API key (starts with "AIza")</li>
+    <li>Create a key at your provider, from the links above</li>
     <li>In WhatsApp Web, click the AI button → Settings</li>
-    <li>Paste your API key and save</li>
-    <li>Use the "Test Connection" button to verify it works</li>
+    <li>Choose the provider from the dropdown</li>
+    <li>Paste your API key</li>
+    <li>Optionally set a model — leave it blank for the provider's default, or press "Load models from provider" to see what your key can reach</li>
+    <li>Save, then use "Test Connection" to verify it works</li>
   </ol>
+
+  <h3>Custom and local endpoints</h3>
+  <p>Chrome only lets the extension reach the hosts listed in its manifest. A custom endpoint or a local Ollama is not one of them, so open the extension popup once and press "Grant access" — Chrome can only ask for that permission from the popup.</p>
+  <p>Running Ollama? Start it with <code>OLLAMA_ORIGINS=*</code> so it accepts the extension's requests.</p>
 
   <div class="warning">
     <span class="warning-icon">⚠️ Important:</span> Keep your API key secure and never share it publicly. The extension stores it locally in your browser.
@@ -239,14 +257,15 @@ Message containers: [data-testid="msg-container"]
   </ul>
 
   <h3>AI Integration</h3>
-  <p>The extension uses Google's Gemini 1.5 Flash model with these parameters:</p>
+  <p>Whichever provider you pick is called with the same generation settings:</p>
   <div class="code-block">
-API Endpoint: /v1/models/gemini-1.5-flash:generateContent<br>
+Provider: your choice (see above)<br>
+Model: the provider's default, or whatever you set<br>
 Temperature: 0.7 (balanced creativity)<br>
 Max Output Tokens: 1024<br>
-Top K: 40<br>
-Top P: 0.95
+Context: up to the 100 most recent messages
   </div>
+  <p>Requests are made from the extension's background service worker, not from the page, so every provider is reachable regardless of its CORS policy.</p>
 
   <h3>Supported Features</h3>
   <ul>
@@ -271,10 +290,11 @@ Top P: 0.95
 
   <h3>AI Responses Not Generating</h3>
   <ul>
-    <li>Verify your Gemini API key is correctly entered</li>
-    <li>Check your internet connection</li>
-    <li>Ensure you haven't exceeded API rate limits</li>
-    <li>Try again in a few moments</li>
+    <li>Verify the API key matches the provider selected in Settings</li>
+    <li>Press "Test Connection" in Settings — it reports the provider's own error</li>
+    <li>A 404 usually means the model name is wrong; clear it to use the default</li>
+    <li>For a custom or local endpoint, grant access to its host from the extension popup</li>
+    <li>Check your internet connection and that you haven't exceeded the provider's rate limits</li>
   </ul>
 
   <h3>Messages Not Extracting</h3>
@@ -287,14 +307,15 @@ Top P: 0.95
   <h2>🔒 Privacy & Security</h2>
   <ul>
     <li>All message processing happens locally in your browser</li>
-    <li>API key is stored securely in Chrome's sync storage</li>
-    <li>Conversations are only sent to Gemini when you explicitly request AI responses</li>
-    <li>No data is stored on external servers (except during API calls to Google)</li>
+    <li>API keys are stored in Chrome's sync storage, one per provider</li>
+    <li>Conversations are only sent to the provider you selected, and only when you explicitly request an AI response</li>
+    <li>No data is stored on external servers (except during API calls to your provider)</li>
     <li>Extension only works on web.whatsapp.com for security</li>
   </ul>
 
   <h2>📝 Version History</h2>
   <ul>
+    <li><strong>v1.3</strong> - Choose any AI provider: Gemini, Claude, GPT, OpenRouter, Groq, DeepSeek, Mistral, Grok, Ollama or a custom endpoint</li>
     <li><strong>v1.0</strong> - Initial release with conversation export and AI response generation</li>
   </ul>
 

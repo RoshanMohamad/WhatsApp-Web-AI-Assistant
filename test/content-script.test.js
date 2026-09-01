@@ -48,14 +48,25 @@ function createIsolatedWorld() {
     getElementById: () => null
   };
 
+  const sent = [];
   const chrome = {
     storage: {
-      sync: { get: async () => ({}), set: async () => {} },
+      sync: { get: async () => ({}), set: async () => {}, remove: async () => {} },
       local: { get: async () => ({}), set: async () => {} }
     },
-    runtime: { onMessage: { addListener: noop }, getURL: (p) => p },
+    runtime: {
+      onMessage: { addListener: noop },
+      getURL: (p) => p,
+      // Every provider call goes through the background worker; record them.
+      sendMessage: async (message) => {
+        sent.push(message);
+        if (message.action === 'checkHostPermission') return { granted: true };
+        return { ok: true, text: 'Generated reply' };
+      }
+    },
     tabs: { query: noop, sendMessage: noop }
   };
+  chrome.runtime.sent = sent;
 
   const sandbox = {
     document,
@@ -128,4 +139,37 @@ test('the assistant delegates sorting to the shared module', () => {
   ]);
 
   assert.deepEqual(sorted.map((m) => m.text), ['earlier', 'later']);
+});
+
+test('the assistant asks the background worker instead of fetching itself', async () => {
+  const context = createIsolatedWorld();
+
+  for (const file of contentScript.js) {
+    const source = fs.readFileSync(path.join(ROOT, file), 'utf8');
+    vm.runInContext(source, context, { filename: file });
+  }
+
+  const text = await context.whatsappAI.callProvider('Alice: hi');
+  assert.equal(text, 'Generated reply');
+
+  const request = context.chrome.runtime.sent.find((m) => m.action === 'generateResponse');
+  assert.ok(request, 'the content script should message the worker, not call fetch');
+  assert.equal(request.data.provider, 'gemini', 'a fresh profile falls back to the default provider');
+  assert.ok(request.data.systemPrompt, 'the system instructions should travel as their own field');
+  assert.match(request.data.userPrompt, /Alice: hi/);
+});
+
+test('a worker error surfaces as a message the user can read', async () => {
+  const context = createIsolatedWorld();
+  context.chrome.runtime.sendMessage = async () => ({ ok: false, error: 'OpenAI rejected the API key.' });
+
+  for (const file of contentScript.js) {
+    const source = fs.readFileSync(path.join(ROOT, file), 'utf8');
+    vm.runInContext(source, context, { filename: file });
+  }
+
+  await assert.rejects(
+    () => context.whatsappAI.callProvider('Alice: hi'),
+    /rejected the API key/
+  );
 });

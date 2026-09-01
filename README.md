@@ -4,18 +4,19 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Manifest V3](https://img.shields.io/badge/Chrome-Manifest%20V3-4285F4.svg)](manifest.json)
 
-A Chrome extension that enables you to export WhatsApp Web conversations and generate AI responses using Google's Gemini AI.
+A Chrome extension that enables you to export WhatsApp Web conversations and generate AI responses using the language model of your choice.
 
 It runs entirely in your own browser: there is no server, no telemetry, and
 conversation text leaves your machine only when you explicitly ask for an AI
-response. You bring your own Gemini API key.
+response — and then only to the provider you picked. You bring your own API key.
 
 > **Not affiliated with WhatsApp or Meta.** See [Disclaimer](#disclaimer).
 
 ## Features
 
 - 📤 **Export Conversations**: Extract and download complete WhatsApp conversations as text files
-- 🤖 **AI Response Generation**: Generate contextually appropriate responses using Google's Gemini AI
+- 🤖 **AI Response Generation**: Generate contextually appropriate responses from the conversation's context
+- 🔌 **Bring Your Own Model**: Gemini, Claude, GPT, OpenRouter, Groq, DeepSeek, Mistral, Grok, a local Ollama, or any OpenAI-compatible endpoint
 - ⚙️ **Custom System Instructions**: Personalize AI behavior with custom instructions and presets
 - ✨ **Smart Integration**: Insert AI-generated responses directly into WhatsApp's message input
 - 📋 **Copy to Clipboard**: Easily copy generated responses for use elsewhere
@@ -31,17 +32,45 @@ response. You bring your own Gemini API key.
 
 ## Setup
 
-1. **Get a Gemini API Key**:
-   - Visit [Google AI Studio](https://makersuite.google.com/app/apikey)
-   - Sign in with your Google account
-   - Create a new API key (free tier available)
+1. **Get an API Key** from whichever provider you want to use — see
+   [Supported providers](#supported-providers) for the links. Most offer a free
+   tier, and a local Ollama needs no key at all.
 
 2. **Configure the Extension**:
    - Open [WhatsApp Web](https://web.whatsapp.com)
    - Look for the green floating AI button (bottom-right corner)
    - Click the button and select "Settings"
-   - Enter your Gemini API key and save
+   - Pick your provider, paste its API key, and save
+   - Optionally set a model (leave blank for the provider's default, or press
+     **Load models from provider** to see what your key can actually reach)
    - Optionally customize the system instructions to personalize AI responses
+
+Keys are kept per provider, so you can switch between them without pasting a
+key again.
+
+## Supported providers
+
+| Provider | Default model | Where to get a key |
+| --- | --- | --- |
+| Google Gemini | `gemini-2.0-flash` | [Google AI Studio](https://aistudio.google.com/app/apikey) |
+| Anthropic Claude | `claude-sonnet-5` | [Anthropic Console](https://console.anthropic.com/settings/keys) |
+| OpenAI | `gpt-4o-mini` | [OpenAI dashboard](https://platform.openai.com/api-keys) |
+| OpenRouter | `openai/gpt-4o-mini` | [OpenRouter keys](https://openrouter.ai/keys) |
+| Groq | `llama-3.3-70b-versatile` | [Groq console](https://console.groq.com/keys) |
+| DeepSeek | `deepseek-chat` | [DeepSeek platform](https://platform.deepseek.com/api_keys) |
+| Mistral AI | `mistral-small-latest` | [Mistral console](https://console.mistral.ai/api-keys) |
+| xAI Grok | `grok-3` | [xAI console](https://console.x.ai/) |
+| Ollama (local) | `llama3.1` | No key needed |
+| Custom (OpenAI-compatible) | — | Your own endpoint |
+
+**Custom** covers anything that serves `/chat/completions` — LM Studio, vLLM,
+Together, Fireworks, an Azure OpenAI gateway, or your own proxy. Point the base
+URL at it and the extension treats it like any other provider.
+
+Chrome only lets the extension reach the hosts listed in `manifest.json`. A
+custom endpoint or a local Ollama is not one of them, so open the extension
+popup once and press **Grant access** — Chrome asks for that permission at
+runtime, which it can only do from the popup.
 
 ## Usage
 
@@ -84,7 +113,8 @@ The extension uses advanced DOM selectors to extract messages from WhatsApp Web:
 - **Timestamps**: Retrieved from message metadata
 - **Group chat senders**: Identified from message attributes
 
-The conversation is then formatted and sent to Google's Gemini AI API to generate contextually appropriate responses.
+The conversation is then formatted and sent to your chosen provider to generate
+contextually appropriate responses.
 
 ## Technical Details
 
@@ -101,10 +131,16 @@ document.querySelectorAll('[data-testid="msg-container"]')
 ```
 
 ### AI Integration
-- **Model**: `gemini-2.0-flash` (chosen for fast responses)
+- **Provider**: any of the [supported providers](#supported-providers), chosen in settings
 - **Temperature**: 0.7 (balanced creativity)
 - **Max Tokens**: 1024
 - **Context**: up to the 100 most recent messages
+
+Requests are made from the background service worker rather than the content
+script. A content script's `fetch` is an ordinary cross-origin request from
+`web.whatsapp.com`, so it only reaches providers that happen to send permissive
+CORS headers; from the worker it is covered by the manifest's host permissions
+and works everywhere.
 
 ### Supported Features
 - ✅ Text messages
@@ -117,8 +153,8 @@ document.querySelectorAll('[data-testid="msg-container"]')
 ## Privacy & Security
 
 - All message processing happens locally in your browser
-- API key is stored securely in Chrome's sync storage
-- Conversations are only sent to Gemini when you explicitly request AI responses
+- API keys are stored in Chrome's sync storage, one per provider
+- Conversations are only sent to your chosen provider, and only when you explicitly request an AI response
 - No data is stored on external servers (except during API calls)
 - Extension only works on `web.whatsapp.com` for security
 
@@ -127,12 +163,14 @@ document.querySelectorAll('[data-testid="msg-container"]')
 ```
 WhatsApp-Web-AI-Assistant/
 ├── manifest.json          # Extension configuration (Manifest V3)
-├── content.js             # WhatsApp integration: DOM scraping, cache, UI, Gemini calls
-├── background.js          # Service worker; injects the content script
-├── popup.html/.js         # Toolbar popup
+├── content.js             # WhatsApp integration: DOM scraping, cache, UI, settings
+├── background.js          # Service worker; performs every provider call, injects the content script
+├── popup.html/.js         # Toolbar popup; grants access to custom endpoints
 ├── help.html              # In-extension documentation page
 ├── styles.css             # Styling for the injected UI
 ├── lib/
+│   ├── providers.js       # One adapter per provider: request, response, errors
+│   ├── settings.js        # Storage layout and the upgrade from the old Gemini-only key
 │   └── timestamps.js      # Dependency-free timestamp parsing and message ordering
 ├── test/                  # Unit tests for lib/, run with `node --test`
 ├── scripts/
@@ -150,7 +188,7 @@ for the tests, so a single file serves both.
 ### Prerequisites
 - Chrome browser
 - [Node.js](https://nodejs.org) 20.11 or newer (for linting, tests and packaging)
-- Gemini API key
+- An API key from one of the [supported providers](#supported-providers)
 
 ### Local Development
 ```bash
@@ -178,8 +216,14 @@ content scripts are not hot-reloaded.
 **content.js**: Main script that:
 - Detects WhatsApp messages using CSS selectors
 - Extracts conversation data
-- Interfaces with Gemini AI API
-- Manages UI interactions
+- Renders the settings and response UI
+- Asks the background worker for a generation
+
+**lib/providers.js**: One adapter per provider. Each knows how to turn a prompt
+into an HTTP request, how to find the text in the response, and how to explain
+an error. Adding a provider means adding an entry here — nothing else in the
+extension names a vendor. Most vendors speak the OpenAI chat-completions
+dialect and share one builder, so an OpenAI-compatible provider is a few lines.
 
 **styles.css**: Provides styling for:
 - Floating action button
@@ -195,9 +239,12 @@ content scripts are not hot-reloaded.
 - Verify you're on `web.whatsapp.com`
 
 ### AI Responses Not Generating
-- Verify API key is correctly entered
-- Check internet connection
-- Ensure you haven't exceeded API limits
+- Verify the API key is correct for the provider selected in settings
+- Press **Test Connection** in settings — it reports the provider's own error
+- If the model name is wrong you will see a 404; leave it blank for the default,
+  or press **Load models from provider**
+- For a custom or local endpoint, open the popup and grant access to its host
+- Check internet connection and that you haven't exceeded the provider's limits
 
 ### Messages Not Extracting
 - Make sure conversation is fully loaded
@@ -206,9 +253,9 @@ content scripts are not hot-reloaded.
 
 ## API Rate Limits
 
-Google's Gemini API has rate limits:
-- **Free tier**: 60 requests per minute
-- **Paid tier**: Higher limits available
+Every provider sets its own rate limits and pricing; check your provider's
+dashboard. Rate-limit responses (HTTP 429) are surfaced as a notification with
+the provider's own message.
 
 ## Contributing
 
@@ -247,4 +294,6 @@ This extension is not affiliated with WhatsApp or Meta. It's an independent tool
 
 ---
 
-**Note**: This extension requires a Google Gemini API key to function. Make sure to keep your API key secure and never share it publicly.
+**Note**: This extension requires an API key from one of the supported providers
+(or a local Ollama) to function. Make sure to keep your API key secure and never
+share it publicly.

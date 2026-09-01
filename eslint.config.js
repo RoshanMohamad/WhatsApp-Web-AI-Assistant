@@ -39,8 +39,12 @@ module.exports = [
       globals: {
         ...globals.browser,
         ...globals.webextensions,
-        // Attached to the isolated world by lib/timestamps.js
-        WhatsAppTimestamps: 'readonly'
+        // Attached to the isolated world by the modules in lib/
+        WhatsAppTimestamps: 'readonly',
+        LLMProviders: 'readonly',
+        AISettings: 'readonly',
+        // background.js runs as a service worker
+        importScripts: 'readonly'
       }
     }
   }

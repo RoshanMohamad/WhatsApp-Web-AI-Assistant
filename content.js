@@ -8,8 +8,7 @@ if (window.whatsappAILoaded) {
 class WhatsAppAI {
   constructor() {
     this.messages = [];
-    this.apiKey = '';
-    this.systemInstructions = '';
+    this.settings = AISettings.fromStored({});
     this.messageCache = new Map(); // Local cache for messages
     this.chatId = null; // Current chat identifier
     this.lastScrollPosition = 0;
@@ -17,16 +16,27 @@ class WhatsAppAI {
   }
 
   async init() {
-    // Get API key and system instructions from storage
-    const result = await chrome.storage.sync.get(['geminiApiKey', 'systemInstructions']);
-    this.apiKey = result.geminiApiKey || '';
-    this.systemInstructions = result.systemInstructions || 'You are a helpful AI assistant that generates appropriate responses for WhatsApp conversations. Keep responses natural, conversational, and contextually relevant.';
-    
+    // Which provider, which key, which model - see lib/settings.js
+    this.settings = await AISettings.load();
+
+    // A 1.2.x install stored a bare `geminiApiKey`; write it back in the new
+    // per-provider layout so the old key is only read once.
+    if (this.settings.migrated) await AISettings.save(this.settings);
+
     // Initialize chat tracking
     this.initializeChatTracking();
     
     // Wait for WhatsApp to load
     this.waitForWhatsApp();
+  }
+
+  /** The provider, key, model and base URL currently selected. */
+  get activeConfig() {
+    return AISettings.activeConfig(this.settings);
+  }
+
+  get systemInstructions() {
+    return this.settings.systemInstructions;
   }
 
   initializeChatTracking() {
@@ -822,68 +832,98 @@ class WhatsAppAI {
   }
 
   async generateResponse() {
-    if (!this.apiKey || this.apiKey.trim() === '') {
-      this.showNotification('Please set your Gemini API key in settings', 'error');
+    const config = this.activeConfig;
+    const provider = LLMProviders.get(config.provider);
+
+    const keyCheck = LLMProviders.validateKey(config.provider, config.apiKey);
+    if (!keyCheck.valid) {
+      this.showNotification(`${keyCheck.message}. Opening settings...`, 'error');
       this.openSettings();
       return;
     }
 
-    // Basic API key format validation
-    if (!this.apiKey.startsWith('AIza')) {
-      this.showNotification('Invalid API key format. Please check your Gemini API key.', 'error');
+    if (!config.baseUrl) {
+      this.showNotification(`${provider.label} needs a base URL. Opening settings...`, 'error');
       this.openSettings();
+      return;
+    }
+
+    // Endpoints outside the manifest (a custom gateway, a local Ollama) need a
+    // permission the user grants from the extension popup.
+    if (!(await this.hasHostPermission(config))) {
+      this.showNotification(
+        `Chrome is blocking ${this.hostLabel(config.baseUrl)}. Open the extension popup and grant access to it.`,
+        'error'
+      );
       return;
     }
 
     try {
       // Show instructions dialog first
       const messageInstructions = await this.showInstructionsDialog();
-      
+
       this.showNotification('Analyzing conversation...', 'info');
-      
+
       const messages = await this.extractMessages();
-      
+
       if (messages.length === 0) {
         this.showNotification('No messages found to analyze', 'warning');
         return;
       }
-      
-      this.showNotification('Generating AI response...', 'info');
-      
+
+      this.showNotification(`Generating with ${provider.label}...`, 'info');
+
       const conversationText = this.formatConversationForAI(messages, messageInstructions);
       console.log('Conversation to analyze:', conversationText);
-      
-      const response = await this.callGeminiAPI(conversationText);
-      
+
+      const response = await this.callProvider(conversationText);
+
       if (response) {
         this.displayAIResponse(response);
         this.showNotification('AI response generated successfully!', 'success');
       }
     } catch (error) {
       console.error('AI generation error:', error);
-      
-      let errorMessage = 'Failed to generate AI response';
-      
-      if (error.message.includes('404')) {
-        errorMessage = 'API endpoint not found. Please check your API key.';
-      } else if (error.message.includes('403')) {
-        errorMessage = 'API access denied. Please verify your API key permissions.';
-      } else if (error.message.includes('429')) {
-        errorMessage = 'Rate limit exceeded. Please try again later.';
-      } else if (error.message.includes('API Error')) {
-        errorMessage = error.message;
-      }
-      
-      this.showNotification(errorMessage, 'error');
+      this.showNotification(error.message || 'Failed to generate AI response', 'error');
     }
   }
 
-  async callGeminiAPI(conversationText) {
-    const systemPrompt = this.systemInstructions || 'You are a helpful AI assistant that generates appropriate responses for WhatsApp conversations. Keep responses natural, conversational, and contextually relevant.';
-    
-    const prompt = `${systemPrompt}
+  /** The host of a base URL, for a message - never throws on a typo'd URL. */
+  hostLabel(url) {
+    try {
+      return new URL(url).host;
+    } catch (error) {
+      return url || 'the provider';
+    }
+  }
 
-I'm providing you with a WhatsApp conversation. Please analyze the context and generate an appropriate response that would fit naturally as the next message in this conversation.
+  /** Custom endpoints are not in the manifest, so their access is granted at runtime. */
+  async hasHostPermission(config) {
+    const provider = LLMProviders.get(config.provider);
+
+    // A built-in provider left on its own host is already covered by the manifest.
+    const isDefaultHost = provider.defaultBaseUrl &&
+      config.baseUrl.startsWith(provider.defaultBaseUrl) &&
+      (provider.origins || []).some((origin) => origin.startsWith('https://'));
+    if (isDefaultHost) return true;
+
+    const reply = await chrome.runtime.sendMessage({
+      action: 'checkHostPermission',
+      data: { baseUrl: config.baseUrl }
+    });
+
+    return Boolean(reply && reply.granted);
+  }
+
+  /**
+   * Hands the prompt to the background worker, which owns every provider call.
+   * A content script's own fetch would be a cross-origin request from
+   * web.whatsapp.com and would be blocked by most providers.
+   */
+  async callProvider(conversationText) {
+    const config = this.activeConfig;
+
+    const userPrompt = `I'm providing you with a WhatsApp conversation. Please analyze the context and generate an appropriate response that would fit naturally as the next message in this conversation.
 
 ${conversationText}
 
@@ -895,97 +935,22 @@ Based on the conversation context above, generate a natural and appropriate resp
 
 Your response:`;
 
-    try {
-      // Updated API endpoint - using the correct v1 endpoint
-      const response = await fetch(`https://generativelanguage.googleapis.com/v1/models/gemini-2.0-flash:generateContent?key=${this.apiKey}`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          contents: [{
-            parts: [{
-              text: prompt
-            }]
-          }],
-          generationConfig: {
-            temperature: 0.7,
-            topK: 40,
-            topP: 0.95,
-            maxOutputTokens: 1024,
-          },
-          safetySettings: [
-            {
-              category: "HARM_CATEGORY_HARASSMENT",
-              threshold: "BLOCK_MEDIUM_AND_ABOVE"
-            },
-            {
-              category: "HARM_CATEGORY_HATE_SPEECH",
-              threshold: "BLOCK_MEDIUM_AND_ABOVE"
-            },
-            {
-              category: "HARM_CATEGORY_SEXUALLY_EXPLICIT",
-              threshold: "BLOCK_MEDIUM_AND_ABOVE"
-            },
-            {
-              category: "HARM_CATEGORY_DANGEROUS_CONTENT",
-              threshold: "BLOCK_MEDIUM_AND_ABOVE"
-            }
-          ]
-        })
-      });
+    const reply = await chrome.runtime.sendMessage({
+      action: 'generateResponse',
+      data: {
+        provider: config.provider,
+        apiKey: config.apiKey,
+        model: config.model,
+        baseUrl: config.baseUrl,
+        systemPrompt: this.systemInstructions || AISettings.DEFAULT_SYSTEM_INSTRUCTIONS,
+        userPrompt
+      }
+    });
 
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        console.error('API Error Details:', errorData);
-        throw new Error(`API Error: ${response.status} - ${errorData.error?.message || 'Unknown error'}`);
-      }
+    if (!reply) throw new Error('The extension background worker did not respond. Try reloading the page.');
+    if (!reply.ok) throw new Error(reply.error);
 
-      const data = await response.json();
-      console.log('Gemini API Response:', data);
-      
-      // Check if response was truncated due to max tokens
-      const finishReason = data.candidates?.[0]?.finishReason;
-      if (finishReason === 'MAX_TOKENS') {
-        console.warn('Response was truncated due to max tokens limit');
-      }
-      
-      // Try different possible response structures
-      let generatedText = null;
-      
-      // Standard Gemini response structure
-      if (data.candidates?.[0]?.content?.parts?.[0]?.text) {
-        generatedText = data.candidates[0].content.parts[0].text;
-      }
-      // Alternative structure - sometimes content is directly text
-      else if (data.candidates?.[0]?.content && typeof data.candidates[0].content === 'string') {
-        generatedText = data.candidates[0].content;
-      }
-      // Another possible structure
-      else if (data.candidates?.[0]?.text) {
-        generatedText = data.candidates[0].text;
-      }
-      // Check if response contains the text at root level
-      else if (data.text) {
-        generatedText = data.text;
-      }
-      
-      if (!generatedText || generatedText.trim() === '') {
-        console.error('No text found in response structure:', JSON.stringify(data, null, 2));
-        
-        // If MAX_TOKENS, show a more helpful error
-        if (finishReason === 'MAX_TOKENS') {
-          throw new Error('Response was truncated due to length limits. Try using fewer messages or shorter instructions.');
-        }
-        
-        throw new Error('No text generated by AI');
-      }
-      
-      return generatedText.trim();
-    } catch (error) {
-      console.error('Gemini API error:', error);
-      throw error;
-    }
+    return reply.text;
   }
 
   displayAIResponse(response) {
@@ -999,7 +964,7 @@ Your response:`;
           <button class="ai-modal-close">&times;</button>
         </div>
         <div class="ai-modal-body">
-          <textarea id="ai-response-text" readonly>${response}</textarea>
+          <textarea id="ai-response-text" readonly></textarea>
           <div class="ai-modal-actions">
             <button id="copy-response">Copy to Clipboard</button>
             <button id="insert-response">Insert into Chat</button>
@@ -1008,6 +973,11 @@ Your response:`;
       </div>
     `;
     
+    // Assigned rather than interpolated into the template: the text comes from
+    // whichever endpoint the user configured, and markup in it would otherwise
+    // run here, in the isolated world, with the chrome.* APIs in reach.
+    modal.querySelector('#ai-response-text').value = response;
+
     document.body.appendChild(modal);
     
     // Add event listeners
@@ -1056,9 +1026,13 @@ Your response:`;
   }
 
   openSettings() {
-    // Create settings modal
     const modal = document.createElement('div');
     modal.id = 'ai-settings-modal';
+
+    const providerOptions = LLMProviders.list()
+      .map((provider) => `<option value="${provider.id}">${provider.label}</option>`)
+      .join('');
+
     modal.innerHTML = `
       <div class="ai-modal-content">
         <div class="ai-modal-header">
@@ -1067,19 +1041,36 @@ Your response:`;
         </div>
         <div class="ai-modal-body">
           <div class="setting-group">
-            <label for="gemini-api-key">Gemini API Key:</label>
-            <input type="password" id="gemini-api-key" placeholder="Enter your Gemini API key (starts with AIza...)" value="${this.apiKey}">
+            <label for="ai-provider">AI Provider:</label>
+            <select id="ai-provider">${providerOptions}</select>
+            <small id="provider-hint"></small>
+          </div>
+
+          <div class="setting-group">
+            <label for="ai-api-key">API Key:</label>
+            <input type="password" id="ai-api-key" autocomplete="off">
+            <small id="api-key-hint"></small>
+          </div>
+
+          <div class="setting-group">
+            <label for="ai-model">Model:</label>
+            <input type="text" id="ai-model" list="ai-model-options" autocomplete="off">
+            <datalist id="ai-model-options"></datalist>
             <small>
-              1. Visit <a href="https://aistudio.google.com/app/apikey" target="_blank">Google AI Studio</a><br>
-              2. Click "Create API Key"<br>
-              3. Copy the key (starts with "AIza")<br>
-              4. Paste it above and save
+              Leave blank to use the provider's default.
+              <button type="button" id="refresh-models" class="ai-inline-btn">Load models from provider</button>
             </small>
           </div>
-          
+
+          <div class="setting-group" id="base-url-group">
+            <label for="ai-base-url">API Base URL:</label>
+            <input type="text" id="ai-base-url" autocomplete="off">
+            <small id="base-url-hint"></small>
+          </div>
+
           <div class="setting-group">
             <label for="system-instructions">System Instructions:</label>
-            <textarea id="system-instructions" placeholder="Enter custom instructions for the AI..." rows="6">${this.systemInstructions}</textarea>
+            <textarea id="system-instructions" placeholder="Enter custom instructions for the AI..." rows="6"></textarea>
             <small>
               <strong>Instructions for the AI:</strong> Define how the AI should behave, its personality, tone, or specific guidelines.<br>
               <strong>Examples:</strong><br>
@@ -1089,7 +1080,7 @@ Your response:`;
               • "Respond in Spanish and be very enthusiastic"
             </small>
           </div>
-          
+
           <div class="setting-group">
             <details>
               <summary style="cursor: pointer; margin-bottom: 10px; font-weight: 500;">🎯 Preset Instructions (Click to expand)</summary>
@@ -1103,7 +1094,7 @@ Your response:`;
               </div>
             </details>
           </div>
-          
+
           <div class="setting-group">
             <label>Test API Connection:</label>
             <button id="test-api" type="button" style="padding: 8px 16px; background: #17a2b8; color: white; border: none; border-radius: 4px; cursor: pointer;">Test Connection</button>
@@ -1114,9 +1105,9 @@ Your response:`;
         </div>
       </div>
     `;
-    
+
     document.body.appendChild(modal);
-    
+
     // Preset instructions
     const presets = {
       professional: "You are a professional AI assistant. Always respond in a formal, respectful, and business-appropriate manner. Use proper grammar and avoid casual language or emojis.",
@@ -1126,14 +1117,84 @@ Your response:`;
       support: "You are a helpful customer support agent. Be patient, understanding, and solution-focused. Always try to resolve issues and provide clear, actionable guidance. Ask clarifying questions when needed.",
       translator: "You are a helpful translation assistant. When someone writes in a language other than English, provide the translation and respond appropriately in their language. If they write in English, respond in English."
     };
-    
-    // Add event listeners for preset buttons
+
+    const providerSelect = modal.querySelector('#ai-provider');
+    const apiKeyInput = modal.querySelector('#ai-api-key');
+    const modelInput = modal.querySelector('#ai-model');
+    const modelOptions = modal.querySelector('#ai-model-options');
+    const baseUrlInput = modal.querySelector('#ai-base-url');
+    const baseUrlGroup = modal.querySelector('#base-url-group');
+    const instructionsInput = modal.querySelector('#system-instructions');
+
+    // Edits live in a working copy so closing the modal discards them.
+    const draft = {
+      provider: this.settings.provider,
+      apiKeys: Object.assign({}, this.settings.apiKeys),
+      models: Object.assign({}, this.settings.models),
+      baseUrls: Object.assign({}, this.settings.baseUrls),
+      systemInstructions: this.settings.systemInstructions
+    };
+
+    /** Remembers what is on screen for the provider being switched away from. */
+    const captureCurrentProvider = () => {
+      draft.apiKeys[draft.provider] = apiKeyInput.value.trim();
+      draft.models[draft.provider] = modelInput.value.trim();
+      draft.baseUrls[draft.provider] = baseUrlInput.value.trim();
+    };
+
+    const renderProvider = (providerId) => {
+      const provider = LLMProviders.get(providerId);
+
+      providerSelect.value = provider.id;
+      apiKeyInput.value = draft.apiKeys[provider.id] || '';
+      apiKeyInput.placeholder = provider.keyPlaceholder || 'Your API key';
+      modelInput.value = draft.models[provider.id] || '';
+      modelInput.placeholder = provider.defaultModel || 'Model name';
+      baseUrlInput.value = draft.baseUrls[provider.id] || '';
+      baseUrlInput.placeholder = provider.defaultBaseUrl || 'https://your-endpoint.example/v1';
+
+      modelOptions.innerHTML = (provider.models || [])
+        .map((model) => `<option value="${model}"></option>`)
+        .join('');
+
+      // Gemini's endpoint is not swappable; everyone else may point elsewhere.
+      baseUrlGroup.style.display = provider.allowCustomBaseUrl ? '' : 'none';
+
+      const hints = [];
+      if (provider.hint) hints.push(provider.hint);
+      if (!provider.requiresKey) hints.push('This provider works without a key.');
+      modal.querySelector('#provider-hint').textContent = hints.join(' ');
+
+      const keyHint = modal.querySelector('#api-key-hint');
+      if (provider.docsUrl) {
+        keyHint.innerHTML =
+          `Create a key at <a href="${provider.docsUrl}" target="_blank" rel="noopener">${provider.docsLabel}</a>` +
+          (provider.keyPrefix ? `, it starts with "${provider.keyPrefix}".` : '.') +
+          '<br>Keys are stored in your browser profile and are only ever sent to the provider you pick.';
+      } else {
+        keyHint.textContent = 'Keys are stored in your browser profile and are only ever sent to the provider you pick.';
+      }
+
+      modal.querySelector('#base-url-hint').textContent = provider.defaultBaseUrl
+        ? `Leave blank for ${provider.defaultBaseUrl}`
+        : 'Point this at any endpoint that serves /chat/completions.';
+    };
+
+    renderProvider(draft.provider);
+    instructionsInput.value = draft.systemInstructions;
+
+    providerSelect.addEventListener('change', () => {
+      const next = providerSelect.value;
+      captureCurrentProvider();
+      draft.provider = next;
+      renderProvider(next);
+    });
+
     modal.querySelectorAll('.preset-btn').forEach(btn => {
       btn.addEventListener('click', () => {
         const preset = btn.getAttribute('data-preset');
-        const textarea = document.getElementById('system-instructions');
-        textarea.value = presets[preset];
-        
+        instructionsInput.value = presets[preset];
+
         // Visual feedback
         btn.style.background = '#25d366';
         btn.style.color = 'white';
@@ -1143,59 +1204,118 @@ Your response:`;
         }, 500);
       });
     });
-    
-    // Add event listeners
+
     modal.querySelector('.ai-modal-close').addEventListener('click', () => {
       document.body.removeChild(modal);
     });
-    
-    document.getElementById('test-api').addEventListener('click', async () => {
-      const apiKey = document.getElementById('gemini-api-key').value;
-      if (!apiKey) {
-        this.showNotification('Please enter an API key first', 'warning');
+
+    /** What the form currently describes, in the shape the worker expects. */
+    const draftConfig = () => ({
+      provider: draft.provider,
+      apiKey: apiKeyInput.value.trim(),
+      model: LLMProviders.resolveModel(draft.provider, modelInput.value),
+      baseUrl: LLMProviders.resolveBaseUrl(draft.provider, baseUrlInput.value)
+    });
+
+    modal.querySelector('#refresh-models').addEventListener('click', async () => {
+      const config = draftConfig();
+
+      if (!config.baseUrl) {
+        this.showNotification('Enter a base URL first', 'warning');
         return;
       }
-      
-      this.showNotification('Testing API connection...', 'info');
-      
-      try {
-        const testResponse = await fetch(`https://generativelanguage.googleapis.com/v1/models/gemini-2.0-flash:generateContent?key=${apiKey}`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            contents: [{ parts: [{ text: 'Hello, this is a test.' }] }]
-          })
-        });
-        
-        if (testResponse.ok) {
-          this.showNotification('API connection successful!', 'success');
-        } else {
-          const errorData = await testResponse.json().catch(() => ({}));
-          this.showNotification(`API test failed: ${errorData.error?.message || 'Invalid API key'}`, 'error');
+
+      this.showNotification('Loading models...', 'info');
+
+      const reply = await chrome.runtime.sendMessage({
+        action: 'listModels',
+        data: { provider: config.provider, apiKey: config.apiKey, baseUrl: config.baseUrl }
+      });
+
+      if (!reply || !reply.ok) {
+        this.showNotification(`Could not load models: ${(reply && reply.error) || 'no response'}`, 'error');
+        return;
+      }
+
+      const models = (reply.models || []).sort();
+      if (models.length === 0) {
+        this.showNotification('The provider listed no models', 'warning');
+        return;
+      }
+
+      modelOptions.innerHTML = models.map((model) => `<option value="${model}"></option>`).join('');
+      this.showNotification(`Loaded ${models.length} models - click the model box to pick one`, 'success');
+    });
+
+    modal.querySelector('#test-api').addEventListener('click', async () => {
+      const config = draftConfig();
+      const provider = LLMProviders.get(config.provider);
+
+      const keyCheck = LLMProviders.validateKey(config.provider, config.apiKey);
+      if (!keyCheck.valid) {
+        this.showNotification(keyCheck.message, 'warning');
+        return;
+      }
+
+      if (!config.baseUrl) {
+        this.showNotification('Enter a base URL first', 'warning');
+        return;
+      }
+
+      if (!(await this.hasHostPermission(config))) {
+        this.showNotification(
+          `Chrome is blocking ${this.hostLabel(config.baseUrl)}. Open the extension popup to grant access.`,
+          'error'
+        );
+        return;
+      }
+
+      this.showNotification(`Testing ${provider.label}...`, 'info');
+
+      const reply = await chrome.runtime.sendMessage({
+        action: 'generateResponse',
+        data: {
+          provider: config.provider,
+          apiKey: config.apiKey,
+          model: config.model,
+          baseUrl: config.baseUrl,
+          systemPrompt: 'You are a connection test. Reply with the single word OK.',
+          userPrompt: 'Reply with the single word OK.',
+          maxTokens: 16
         }
-      } catch (error) {
-        this.showNotification('API test failed: Network error', 'error');
+      });
+
+      if (reply && reply.ok) {
+        this.showNotification(`${provider.label} responded - connection works`, 'success');
+      } else {
+        this.showNotification((reply && reply.error) || 'Test failed: no response', 'error');
       }
     });
-    
-    document.getElementById('save-settings').addEventListener('click', async () => {
-      const apiKey = document.getElementById('gemini-api-key').value.trim();
-      const systemInstructions = document.getElementById('system-instructions').value.trim();
-      
-      if (apiKey && !apiKey.startsWith('AIza')) {
-        this.showNotification('Invalid API key format. Should start with "AIza"', 'error');
+
+    modal.querySelector('#save-settings').addEventListener('click', async () => {
+      captureCurrentProvider();
+
+      const keyCheck = LLMProviders.validateKey(draft.provider, draft.apiKeys[draft.provider]);
+      if (!keyCheck.valid && draft.apiKeys[draft.provider]) {
+        this.showNotification(keyCheck.message, 'error');
         return;
       }
-      
-      this.apiKey = apiKey;
-      this.systemInstructions = systemInstructions || 'You are a helpful AI assistant that generates appropriate responses for WhatsApp conversations. Keep responses natural, conversational, and contextually relevant.';
-      
-      await chrome.storage.sync.set({ 
-        geminiApiKey: apiKey,
-        systemInstructions: this.systemInstructions
-      });
-      
-      this.showNotification('Settings saved successfully!', 'success');
+
+      draft.systemInstructions = instructionsInput.value.trim() || AISettings.DEFAULT_SYSTEM_INSTRUCTIONS;
+
+      this.settings = draft;
+      await AISettings.save(draft);
+
+      const config = this.activeConfig;
+      if (!(await this.hasHostPermission(config))) {
+        this.showNotification(
+          `Saved. Open the extension popup to let Chrome reach ${this.hostLabel(config.baseUrl)}.`,
+          'warning'
+        );
+      } else {
+        this.showNotification('Settings saved successfully!', 'success');
+      }
+
       document.body.removeChild(modal);
     });
   }
